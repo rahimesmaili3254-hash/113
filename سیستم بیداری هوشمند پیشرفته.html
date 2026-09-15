@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سیستم بیداری هوشمند پیشرفته و اسکن سه‌طرفه</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: Tahoma, sans-serif; }
+        .video-container { transform: scaleX(-1); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 relative">
+
+    <div id="toast" class="fixed top-4 z-50 transition-all duration-300 transform -translate-y-20 opacity-0 bg-blue-600 text-white px-6 py-3 rounded-xl shadow-lg font-medium text-sm">
+        پیام سیستم
+    </div>
+
+    <main class="max-w-md w-full bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700 flex flex-col items-center space-y-4">
+        
+        <header class="text-center w-full">
+            <h1 class="text-xl font-bold text-blue-400 mb-1">سیستم بیداری هوشمند و اسکن سه‌طرفه</h1>
+            <p class="text-xs text-slate-400">ابتدا اسکن سه‌طرفه صورت و سپس پایش هوشمند</p>
+        </header>
+
+        <div id="setup-section" class="w-full space-y-3">
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">نام و نام خانوادگی:</label>
+                <input type="text" id="user-name" placeholder="مثال: علی احمدی" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
+            </div>
+            
+            <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">حالت عملکرد سیستم:</label>
+                <select id="mode-select" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
+                    <option value="awake">حالت بیداری (نگهبانی و هشدار خواب‌آلودگی)</option>
+                    <option value="sleep">حالت استراحت/خواب (پایش مداوم خواب کاربر)</option>
+                </select>
+            </div>
+
+            <button onclick="startCalibration()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition active:scale-95 text-sm cursor-pointer">
+                شروع اسکن سه‌طرفه صورت 🎥
+            </button>
+        </div>
+
+        <div id="calibration-section" class="w-full hidden flex-col items-center space-y-4">
+            <div class="w-full bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+                <h2 id="calib-title" class="text-sm font-bold text-amber-400 mb-1">مرحله ۱ از ۳: روبرو را نگاه کنید</h2>
+                <p id="calib-desc" class="text-xs text-slate-400">سر خود را مستقیماً به دوربین بدوزید و ثابت بمانید...</p>
+                <div class="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden mt-3 border border-slate-700">
+                    <div id="calib-progress" class="bg-amber-500 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="camera-section" class="w-full hidden flex-col items-center space-y-4">
+            <div class="relative w-full rounded-xl overflow-hidden shadow-lg border border-slate-700 bg-black aspect-[3/4]">
+                <video id="webcam" autoplay playsinline muted class="w-full h-full object-cover video-container"></video>
+                <div id="loading-overlay" class="absolute inset-0 flex items-center justify-center bg-black/80 text-white text-xs p-4 text-center">
+                    در حال راه‌اندازی هوش مصنوعی...
+                </div>
+                <div id="ear-badge" class="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-3 py-1 rounded-lg text-xs font-mono text-emerald-400 border border-slate-700">
+                    EAR: --
+                </div>
+                <div id="mode-badge" class="absolute top-3 left-3 bg-blue-600/80 backdrop-blur-md px-3 py-1 rounded-lg text-xs text-white border border-blue-500">
+                    حالت: --
+                </div>
+            </div>
+
+            <div id="active-user-display" class="text-xs text-blue-300 font-medium bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700 w-full text-center truncate">
+                کاربر: --
+            </div>
+
+            <div id="status-box" class="w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-amber-600 text-white transition-all">
+                در حال پایش...
+            </div>
+
+            <button onclick="resetSystem()" class="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-xl text-xs transition cursor-pointer">
+                تنظیم مجدد و بازگشت به تنظیمات ⚙️
+            </button>
+        </div>
+
+    </main>
+
+    <script>
+        const BOT_TOKEN = "8737352918:AAHbDNFTeeizz8hma0C1Hf_hvlAaNVQf2ws";
+        const CHAT_ID = "8298676293";
+
+        const setupSection = document.getElementById('setup-section');
+        const calibrationSection = document.getElementById('calibration-section');
+        const cameraSection = document.getElementById('camera-section');
+        const userNameInput = document.getElementById('user-name');
+        const modeSelect = document.getElementById('mode-select');
+        const activeUserDisplay = document.getElementById('active-user-display');
+        const videoElement = document.getElementById('webcam');
+        const statusBox = document.getElementById('status-box');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const earBadge = document.getElementById('ear-badge');
+        const modeBadge = document.getElementById('mode-badge');
+        const toast = document.getElementById('toast');
+        const calibTitle = document.getElementById('calib-title');
+        const calibDesc = document.getElementById('calib-desc');
+        const calibProgress = document.getElementById('calib-progress');
+
+        let currentUserName = "";
+        let selectedMode = "awake"; // 'awake' or 'sleep'
+        let calibrationStep = 0; // 0: front, 1: left, 2: right
+        let isCalibrating = false;
+        let calibFramesCount = 0;
+
+        let consecutiveFrames = 0;
+        const CLOSED_THRESHOLD = 0.15; // آستانه دقیق کمتر از 0.15
+        const FRAME_LIMIT = 10;
+        let lastAlertTime = 0;
+        let reportSent = false;
+
+        let audioCtx = null;
+        function playAlarmSound() {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const osc = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(700, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                osc.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } catch (e) {
+                console.error("Audio error:", e);
+            }
+        }
+
+        function showToast(message, isError = false) {
+            toast.innerText = message;
+            toast.className = `fixed top-4 z-50 transition-all duration-300 transform translate-y-0 opacity-100 ${isError ? 'bg-rose-600' : 'bg-emerald-600'} text-white px-6 py-3 rounded-xl shadow-lg font-medium text-sm`;
+            setTimeout(() => {
+                toast.className = 'fixed top-4 z-50 transition-all duration-300 transform -translate-y-20 opacity-0 bg-blue-600 text-white px-6 py-3 rounded-xl shadow-lg font-medium text-sm';
+            }, 3000);
+        }
+
+        function sendTelegramMessage(msg) {
+            const now = Date.now();
+            if (now - lastAlertTime > 15000) {
+                lastAlertTime = now;
+                const fullMsg = `👤 کاربر: ${currentUserName}\n📊 حالت: ${selectedMode === 'awake' ? 'نگهبانی و بیداری' : 'پایش خواب'}\n🔔 وضعیت: ${msg}`;
+                fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: CHAT_ID, text: fullMsg })
+                }).then(res => {
+                    if(res.ok) console.log("Telegram message sent.");
+                }).catch(err => console.error("Telegram error:", err));
+            }
+        }
+
+        function calculateEAR(eye, landmarks) {
+            const p1 = landmarks[eye[1]], p5 = landmarks[eye[5]];
+            const v1 = Math.hypot(p1.x - p5.x, p1.y - p5.y);
+            const p2 = landmarks[eye[2]], p4 = landmarks[eye[4]];
+            const v2 = Math.hypot(p2.x - p4.x, p2.y - p4.y);
+            const p0 = landmarks[eye[0]], p3 = landmarks[eye[3]];
+            const h = Math.hypot(p0.x - p3.x, p0.y - p3.y);
+            return (v1 + v2) / (2.0 * h);
+        }
+
+        const LEFT_EYE = [362, 385, 387, 263, 373, 380];
+        const RIGHT_EYE = [33, 160, 158, 133, 153, 144];
+
+        function processCalibration(landmarks) {
+            // بررسی زاویه سر برای اسکن سه طرفه (جلو، چپ، راست)
+            const noseTip = landmarks[1];
+            const leftEarPoint = landmarks[234];
+            const rightEarPoint = landmarks[454];
+
+            const faceWidth = Math.abs(leftEarPoint.x - rightEarPoint.x);
+            const noseOffset = noseTip.x - ((leftEarPoint.x + rightEarPoint.x) / 2);
+
+            calibFramesCount++;
+            let progressPercent = Math.min(100, (calibFramesCount / 30) * 100);
+            calibProgress.style.width = `${progressPercent}%`;
+
+            if (calibrationStep === 0) {
+                // مرحله 1: روبرو
+                if (Math.abs(noseOffset) < 0.05) {
+                    if (calibFramesCount > 30) {
+                        calibrationStep = 1;
+                        calibFramesCount = 0;
+                        calibTitle.innerText = "مرحله ۲ از ۳: سر را به سمت چپ بچرخانید ◀️";
+                        calibDesc.innerText = "لطفاً سر خود را کمی به چپ مایل کنید تا اسکن شود...";
+                        showToast("اسکن روبه‌رو تایید شد.");
+                    }
+                }
+            } else if (calibrationStep === 1) {
+                // مرحله 2: چپ
+                if (noseOffset > 0.04) {
+                    if (calibFramesCount > 30) {
+                        calibrationStep = 2;
+                        calibFramesCount = 0;
+                        calibTitle.innerText = "مرحله ۳ از ۳: سر را به سمت راست بچرخانید ▶️";
+                        calibDesc.innerText = "لطفاً سر خود را به سمت راست مایل کنید...";
+                        showToast("اسکن سمت چپ تایید شد.");
+                    }
+                }
+            } else if (calibrationStep === 2) {
+                // مرحله 3: راست
+                if (noseOffset < -0.04) {
+                    if (calibFramesCount > 30) {
+                        isCalibrating = false;
+                        calibrationSection.style.display = 'none';
+                        cameraSection.style.display = 'flex';
+                        modeBadge.innerText = `حالت: ${selectedMode === 'awake' ? 'نگهبانی' : 'خواب'}`;
+                        showToast("اسکن سه‌طرفه صورت با موفقیت تکمیل شد!");
+                        sendTelegramMessage("اسکن سه‌طرفه صورت با موفقیت انجام شد و سیستم پایش فعال گردید.");
+                    }
+                }
+            }
+        }
+
+        function onResults(results) {
+            loadingOverlay.style.display = 'none';
+
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+                statusBox.className = 'w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-rose-600 text-white';
+                statusBox.innerText = '⚠️ چهره‌ای در کادر یافت نشد!';
+                earBadge.innerText = 'EAR: --';
+                return;
+            }
+            
+            const landmarks = results.multiFaceLandmarks[0];
+
+            if (isCalibrating) {
+                processCalibration(landmarks);
+                return;
+            }
+
+            const avgEAR = (calculateEAR(LEFT_EYE, landmarks) + calculateEAR(RIGHT_EYE, landmarks)) / 2.0;
+            earBadge.innerText = `EAR: ${avgEAR.toFixed(2)}`;
+
+            if (selectedMode === 'awake') {
+                // حالت بیداری و نگهبانی
+                if (avgEAR < CLOSED_THRESHOLD) {
+                    consecutiveFrames++;
+                    statusBox.className = 'w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-red-600 text-white animate-pulse';
+                    statusBox.innerText = `⚠️ هشدار! چشم‌ها بسته است (خواب‌آلود - EAR: ${avgEAR.toFixed(2)})`;
+                    
+                    playAlarmSound();
+                    reportSent = false;
+
+                    if (consecutiveFrames >= FRAME_LIMIT) {
+                        sendTelegramMessage(`خواب‌آلود است! میزان باز بودن چشم: ${avgEAR.toFixed(2)}`);
+                    }
+                } else {
+                    consecutiveFrames = 0;
+                    statusBox.className = 'w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-emerald-600 text-white';
+                    statusBox.innerText = '✅ کاربر کاملاً بیدار و هشیار است';
+
+                    if (!reportSent) {
+                        reportSent = true;
+                        sendTelegramMessage('بیدار شد و هشیار است');
+                    }
+                }
+            } else {
+                // حالت خواب/استراحت
+                if (avgEAR < CLOSED_THRESHOLD) {
+                    statusBox.className = 'w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-blue-600 text-white';
+                    statusBox.innerText = '💤 کاربر در حال استراحت و خواب است';
+                    
+                    if (!reportSent) {
+                        reportSent = true;
+                        sendTelegramMessage('به خواب رفت و سیستم خواب فعال شد.');
+                    }
+                } else {
+                    statusBox.className = 'w-full text-center py-2.5 px-3 rounded-xl font-bold text-xs shadow-md bg-amber-600 text-white';
+                    statusBox.innerText = '👀 کاربر بیدار یا در حال جابجایی است';
+                    reportSent = false;
+                }
+            }
+        }
+
+        async function startCalibration() {
+            const nameVal = userNameInput.value.trim();
+            if (!nameVal) {
+                showToast("لطفاً نام و نام خانوادگی خود را وارد کنید!", true);
+                return;
+            }
+
+            currentUserName = nameVal;
+            selectedMode = modeSelect.value;
+            activeUserDisplay.innerText = `کاربر: ${currentUserName} | حالت: ${selectedMode === 'awake' ? 'نگهبانی' : 'خواب'}`;
+
+            setupSection.style.display = 'none';
+            calibrationSection.style.display = 'flex';
+
+            showToast("در حال دسترسی امن به دوربین...");
+
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error("مرورگر از دوربین پشتیبانی نمی‌کند یا صفحه روی HTTPS نیست.");
+                }
+
+                const mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+                    audio: false
+                });
+                
+                videoElement.srcObject = mediaStream;
+                await videoElement.play();
+
+                const faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+                
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                faceMesh.onResults(onResults);
+
+                const cameraInstance = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (videoElement.readyState >= 2) {
+                            await faceMesh.send({ image: videoElement });
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                isCalibrating = true;
+                calibrationStep = 0;
+                calibFramesCount = 0;
+
+                await cameraInstance.start();
+                showToast("اسکن سه‌طرفه آغاز شد. روبرو را نگاه کنید.");
+            } catch (err) {
+                loadingOverlay.style.display = 'none';
+                showToast("خطا در دسترسی به دوربین یا اجرای هوش مصنوعی.", true);
+                console.error(err);
+            }
+        }
+
+        function resetSystem() {
+            location.reload();
+        }
+    </script>
+</body>
+</html>
